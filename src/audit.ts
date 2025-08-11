@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { AxeBuilder } from '@axe-core/playwright';
 import OpenAI from 'openai';
 import { z } from 'zod';
 import { promises as fs } from 'node:fs';
@@ -58,9 +59,10 @@ async function takeScreenshots(url: string, outputDir: string): Promise<void> {
   const browser = await chromium.launch();
   
   // Desktop screenshot (1366x900)
-  const desktopPage = await browser.newPage({
+  const desktopContext = await browser.newContext({
     viewport: { width: 1366, height: 900 }
   });
+  const desktopPage = await desktopContext.newPage();
   
   await desktopPage.goto(url);
   await desktopPage.screenshot({ 
@@ -69,9 +71,10 @@ async function takeScreenshots(url: string, outputDir: string): Promise<void> {
   });
   
   // Mobile screenshot (Pixel 7 dimensions)
-  const mobilePage = await browser.newPage({
+  const mobileContext = await browser.newContext({
     viewport: { width: 412, height: 915 }
   });
+  const mobilePage = await mobileContext.newPage();
   
   await mobilePage.goto(url);
   await mobilePage.screenshot({ 
@@ -84,40 +87,18 @@ async function takeScreenshots(url: string, outputDir: string): Promise<void> {
 
 async function runAccessibilityAudit(url: string): Promise<any[]> {
   const browser = await chromium.launch();
-  const page = await browser.newPage();
-  
-  await page.goto(url);
+  const context = await browser.newContext();
+  const page = await context.newPage();
   
   try {
-    // Basic accessibility checks without axe-core for now
-    const issues = await page.evaluate(() => {
-      const violations = [];
-      
-      // Check for missing alt text
-      const imagesWithoutAlt = document.querySelectorAll('img:not([alt])');
-      if (imagesWithoutAlt.length > 0) {
-        violations.push({
-          id: 'image-alt',
-          description: 'Images must have alternate text',
-          nodes: Array.from(imagesWithoutAlt).map(img => ({ target: [(img as HTMLElement).tagName] }))
-        });
-      }
-      
-      // Check for missing form labels
-      const inputsWithoutLabels = document.querySelectorAll('input:not([aria-label]):not([aria-labelledby])');
-      if (inputsWithoutLabels.length > 0) {
-        violations.push({
-          id: 'label',
-          description: 'Form elements must have labels',
-          nodes: Array.from(inputsWithoutLabels).map(input => ({ target: [(input as HTMLElement).tagName] }))
-        });
-      }
-      
-      return violations;
-    });
+    await page.goto(url);
+    
+    // Run axe-core accessibility analysis
+    const axeResults = await new AxeBuilder({ page })
+      .analyze();
     
     await browser.close();
-    return issues;
+    return axeResults.violations;
   } catch (error) {
     console.warn('Accessibility audit failed:', error);
     await browser.close();
@@ -203,6 +184,8 @@ Consider the accessibility violations in your scoring and recommendations.`;
         }
       }
     }
+  }, {
+    timeout: 120000 // 2分タイムアウト
   });
 
   const content = completion.choices[0]?.message?.content;
@@ -250,7 +233,12 @@ async function main(): Promise<void> {
 
     // Evaluate with OpenAI
     console.log('🤖 Analyzing with AI...');
+    console.log('   This may take 30-60 seconds...');
+    
+    const startTime = Date.now();
     const auditResult = await evaluateWithOpenAI(url, a11yViolations);
+    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`   ✅ AI analysis completed in ${duration}s`);
 
     // Save results
     const reportData = {
