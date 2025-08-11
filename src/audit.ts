@@ -99,7 +99,7 @@ async function runAccessibilityAudit(url: string): Promise<any[]> {
         violations.push({
           id: 'image-alt',
           description: 'Images must have alternate text',
-          nodes: Array.from(imagesWithoutAlt).map(img => ({ target: [img.tagName] }))
+          nodes: Array.from(imagesWithoutAlt).map(img => ({ target: [(img as HTMLElement).tagName] }))
         });
       }
       
@@ -109,7 +109,7 @@ async function runAccessibilityAudit(url: string): Promise<any[]> {
         violations.push({
           id: 'label',
           description: 'Form elements must have labels',
-          nodes: Array.from(inputsWithoutLabels).map(input => ({ target: [input.tagName] }))
+          nodes: Array.from(inputsWithoutLabels).map(input => ({ target: [(input as HTMLElement).tagName] }))
         });
       }
       
@@ -153,7 +153,7 @@ Please provide a comprehensive UX audit focusing on:
 Consider the accessibility violations in your scoring and recommendations.`;
 
   const completion = await openai.chat.completions.create({
-    model: process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-4o',
+    model: process.env.AZURE_OPENAI_DEPLOYMENT!,
     messages: [{ role: 'user', content: prompt }],
     response_format: {
       type: 'json_schema',
@@ -205,7 +205,12 @@ Consider the accessibility violations in your scoring and recommendations.`;
     }
   });
 
-  const result = JSON.parse(completion.choices[0]?.message?.content || '{}');
+  const content = completion.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error('No response content from OpenAI');
+  }
+  
+  const result = JSON.parse(content);
   return AuditResultSchema.parse(result);
 }
 
@@ -221,6 +226,7 @@ async function main(): Promise<void> {
   const url = process.argv[2];
   if (!url) {
     showUsage();
+    return; // Add explicit return for type safety
   }
 
   // Environment validation
